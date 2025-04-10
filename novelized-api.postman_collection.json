@@ -1,0 +1,126 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Novelized API",
+		"description": "Collection for testing the Novelized API endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/health",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"health"
+					]
+				},
+				"description": "Check if the API and database are running properly"
+			},
+			"response": []
+		},
+		{
+			"name": "API Info",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/",
+					"host": [
+						"{{base_url}}"
+					]
+				},
+				"description": "Get information about the API and available endpoints"
+			},
+			"response": []
+		},
+		{
+			"name": "Sign Up",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"John Doe\",\n    \"email\": \"john.doe@example.com\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/signup",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"signup"
+					]
+				},
+				"description": "Sign up for Novelized updates"
+			},
+			"response": []
+		},
+		{
+			"name": "Verify Email",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/verify?token={{verification_token}}",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"verify"
+					],
+					"query": [
+						{
+							"key": "token",
+							"value": "{{verification_token}}"
+						}
+					]
+				},
+				"description": "Verify email address with token"
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "verification_token",
+			"value": "your-verification-token-here",
+			"type": "string"
+		}
+	]
+} 
