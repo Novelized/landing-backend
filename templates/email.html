@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novelized - Email Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo img {
+            max-width: 200px;
+            height: auto;
+        }
+        .content {
+            background-color: #f9f9f9;
+            padding: 30px;
+            border-radius: 5px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <img src="{{.AppURL}}/static/email-assets/logo.png" alt="Novelized Logo">
+        </div>
+        <div class="content">
+            <h1>Welcome to Novelized!</h1>
+            <p>Thank you for registering with Novelized. We're excited to have you on board!</p>
+            <p>To complete your registration, please click the button below to verify your email address:</p>
+            <p style="text-align: center;">
+                <a href="{{.VerificationURL}}" class="button">Verify Email Address</a>
+            </p>
+            <p>If you did not create an account with Novelized, please ignore this email.</p>
+            <p>Best regards,<br>The Novelized Team</p>
+        </div>
+        <div class="footer">
+            <p>© 2024 Novelized. All rights reserved.</p>
+            <p>Your slogan: "Transform your reading experience"</p>
+        </div>
+    </div>
+</body>
+</html> 

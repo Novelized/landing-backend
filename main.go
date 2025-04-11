@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -10,10 +11,12 @@ import (
 	"net/smtp"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"crypto/tls"
+
+	"novelized/landing/backend/services"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
@@ -50,14 +53,14 @@ func (l *Logger) Debug(format string, v ...interface{}) {
 // runMigrations executes all SQL migration files in the migrations directory
 func runMigrations(db *sql.DB, logger *Logger) error {
 	logger.Info("Running database migrations...")
-	
+
 	// Start a transaction for all migrations
 	tx, err := db.Begin()
 	if err != nil {
 		logger.Error("Failed to start transaction for migrations: %v", err)
 		return err
 	}
-	
+
 	// Create migrations table if it doesn't exist
 	_, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS migrations (
@@ -71,7 +74,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 		tx.Rollback()
 		return err
 	}
-	
+
 	// Get list of applied migrations
 	rows, err := tx.Query("SELECT name FROM migrations ORDER BY id")
 	if err != nil {
@@ -80,7 +83,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 		return err
 	}
 	defer rows.Close()
-	
+
 	appliedMigrations := make(map[string]bool)
 	for rows.Next() {
 		var name string
@@ -91,7 +94,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 		}
 		appliedMigrations[name] = true
 	}
-	
+
 	// Get list of migration files
 	files, err := ioutil.ReadDir("migrations")
 	if err != nil {
@@ -99,7 +102,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 		tx.Rollback()
 		return err
 	}
-	
+
 	// Sort files by name to ensure they're applied in order
 	var migrationFiles []string
 	for _, file := range files {
@@ -108,12 +111,12 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 		}
 	}
 	sort.Strings(migrationFiles)
-	
+
 	// Apply each migration that hasn't been applied yet
 	for _, file := range migrationFiles {
 		if !appliedMigrations[file] {
 			logger.Info("Applying migration: %s", file)
-			
+
 			// Read migration file
 			content, err := ioutil.ReadFile(filepath.Join("migrations", file))
 			if err != nil {
@@ -121,7 +124,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 				tx.Rollback()
 				return err
 			}
-			
+
 			// Execute migration
 			_, err = tx.Exec(string(content))
 			if err != nil {
@@ -129,7 +132,7 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 				tx.Rollback()
 				return err
 			}
-			
+
 			// Record migration as applied
 			_, err = tx.Exec("INSERT INTO migrations (name) VALUES ($1)", file)
 			if err != nil {
@@ -137,19 +140,19 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 				tx.Rollback()
 				return err
 			}
-			
+
 			logger.Info("Successfully applied migration: %s", file)
 		} else {
 			logger.Debug("Migration already applied: %s", file)
 		}
 	}
-	
+
 	// Commit the transaction
 	if err := tx.Commit(); err != nil {
 		logger.Error("Failed to commit migration transaction: %v", err)
 		return err
 	}
-	
+
 	logger.Info("All migrations applied successfully")
 	return nil
 }
@@ -191,41 +194,41 @@ func RequestLogger(logger *Logger) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Start timer
 		start := time.Now()
-		
+
 		// Get request details
 		method := c.Method()
 		path := c.Path()
 		ip := c.IP()
 		userAgent := c.Get("User-Agent")
-		
+
 		// Log request
 		logger.Info("Request received: %s %s from %s (User-Agent: %s)", method, path, ip, userAgent)
-		
+
 		// Process request
 		err := c.Next()
-		
+
 		// Calculate duration
 		duration := time.Since(start)
-		
+
 		// Get response status
 		status := c.Response().StatusCode()
-		
+
 		// Log response
 		if err != nil {
-			logger.Error("Request failed: %s %s - Status: %d - Duration: %v - Error: %v", 
+			logger.Error("Request failed: %s %s - Status: %d - Duration: %v - Error: %v",
 				method, path, status, duration, err)
 			return err
 		}
-		
-		logger.Info("Request completed: %s %s - Status: %d - Duration: %v", 
+
+		logger.Info("Request completed: %s %s - Status: %d - Duration: %v",
 			method, path, status, duration)
-		
+
 		return nil
 	}
 }
 
 // sendVerificationEmail sends a verification email to the user
-func sendVerificationEmail(to, name, token string, logger *Logger) error {
+func sendVerificationEmail(to, name, token string, logger *Logger, emailService *services.EmailService) error {
 	from := os.Getenv("SMTP_FROM")
 	smtpHost := os.Getenv("SMTP_HOST")
 	smtpPort := os.Getenv("SMTP_PORT")
@@ -233,7 +236,7 @@ func sendVerificationEmail(to, name, token string, logger *Logger) error {
 	smtpPass := os.Getenv("SMTP_PASS")
 
 	// Log SMTP configuration (without sensitive data)
-	logger.Debug("SMTP Configuration: host=%s, port=%s, from=%s, user=%s", 
+	logger.Debug("SMTP Configuration: host=%s, port=%s, from=%s, user=%s",
 		smtpHost, smtpPort, from, smtpUser)
 
 	// Validate SMTP configuration
@@ -244,48 +247,74 @@ func sendVerificationEmail(to, name, token string, logger *Logger) error {
 	}
 
 	// Create the email message
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:3000" // Default to localhost if not set
+	}
 	verificationURL := fmt.Sprintf("%s/verify?token=%s", os.Getenv("APP_URL"), token)
-	
-	subject := "Verify your Novelized signup"
-	body := fmt.Sprintf(`Hello %s,
 
-Thank you for signing up for Novelized updates! Please verify your email address by clicking the link below:
+	// Generate HTML content using the email service
+	htmlBody, err := emailService.GenerateVerificationEmail(name, verificationURL)
+	if err != nil {
+		logger.Error("Failed to generate email template: %v", err)
+		return fmt.Errorf("failed to generate email template: %w", err)
+	}
+
+	// Create plain text version for email clients that don't support HTML
+	plainTextBody := fmt.Sprintf(`Hello %s,
+
+Thank you for signing up for Novelized updates! We're excited to have you join our community.
+
+To complete your signup and start receiving updates, please verify your email address by clicking the link below:
 
 %s
 
 If you didn't request this signup, you can safely ignore this email.
 
 Best regards,
-The Novelized Team`, name, verificationURL)
+The Novelized Team
 
+© 2025 Novelized. All rights reserved.`, name, verificationURL)
+
+	// Create MIME message
 	msg := fmt.Sprintf("To: %s\r\n"+
 		"From: %s\r\n"+
 		"Subject: %s\r\n"+
 		"MIME-Version: 1.0\r\n"+
+		"Content-Type: multipart/alternative; boundary=boundary123\r\n"+
+		"\r\n"+
+		"--boundary123\r\n"+
 		"Content-Type: text/plain; charset=UTF-8\r\n"+
 		"\r\n"+
-		"%s", to, from, subject, body)
+		"%s\r\n"+
+		"\r\n"+
+		"--boundary123\r\n"+
+		"Content-Type: text/html; charset=UTF-8\r\n"+
+		"\r\n"+
+		"%s\r\n"+
+		"\r\n"+
+		"--boundary123--\r\n", to, from, "Verify your Novelized signup", plainTextBody, htmlBody)
 
 	logger.Debug("Preparing to send verification email to %s from %s via %s:%s", to, from, smtpHost, smtpPort)
-	
+
 	// Log email details (without sensitive information)
-	logger.Info("Sending verification email: to=%s, subject=%s, verification_url=%s", 
-		to, subject, verificationURL)
-	
+	logger.Info("Sending verification email: to=%s, subject=%s, verification_url=%s",
+		to, "Verify your Novelized signup", verificationURL)
+
 	// Set up TLS configuration
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: false,
 		ServerName:         smtpHost,
 	}
-	
+
 	// Create a channel to handle timeout
 	done := make(chan error, 1)
-	
+
 	// Start a goroutine to send the email
 	go func() {
 		// Connect to the SMTP server with TLS
 		logger.Debug("Connecting to SMTP server %s:%s with TLS", smtpHost, smtpPort)
-		
+
 		// For port 465, we need to use TLS from the start
 		conn, err := tls.Dial("tcp", smtpHost+":"+smtpPort, tlsConfig)
 		if err != nil {
@@ -294,7 +323,7 @@ The Novelized Team`, name, verificationURL)
 			return
 		}
 		defer conn.Close()
-		
+
 		// Create a new SMTP client
 		client, err := smtp.NewClient(conn, smtpHost)
 		if err != nil {
@@ -303,7 +332,7 @@ The Novelized Team`, name, verificationURL)
 			return
 		}
 		defer client.Close()
-		
+
 		// Authenticate
 		auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
 		if err := client.Auth(auth); err != nil {
@@ -311,21 +340,21 @@ The Novelized Team`, name, verificationURL)
 			done <- fmt.Errorf("SMTP authentication failed: %w", err)
 			return
 		}
-		
+
 		// Set the sender
 		if err := client.Mail(from); err != nil {
 			logger.Error("Failed to set sender: %v", err)
 			done <- fmt.Errorf("setting sender failed: %w", err)
 			return
 		}
-		
+
 		// Add the recipient
 		if err := client.Rcpt(to); err != nil {
 			logger.Error("Failed to add recipient: %v", err)
 			done <- fmt.Errorf("adding recipient failed: %w", err)
 			return
 		}
-		
+
 		// Send the email body
 		w, err := client.Data()
 		if err != nil {
@@ -333,25 +362,25 @@ The Novelized Team`, name, verificationURL)
 			done <- fmt.Errorf("creating data writer failed: %w", err)
 			return
 		}
-		
+
 		_, err = w.Write([]byte(msg))
 		if err != nil {
 			logger.Error("Failed to write email data: %v", err)
 			done <- fmt.Errorf("writing email data failed: %w", err)
 			return
 		}
-		
+
 		err = w.Close()
 		if err != nil {
 			logger.Error("Failed to close data writer: %v", err)
 			done <- fmt.Errorf("closing data writer failed: %w", err)
 			return
 		}
-		
+
 		// Success
 		done <- nil
 	}()
-	
+
 	// Wait for the email to be sent or timeout
 	select {
 	case err := <-done:
@@ -363,7 +392,7 @@ The Novelized Team`, name, verificationURL)
 		logger.Error("SMTP operation timed out after 15 seconds")
 		return fmt.Errorf("SMTP operation timed out")
 	}
-	
+
 	logger.Info("Verification email sent successfully to %s", to)
 	return nil
 }
@@ -421,6 +450,16 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
+	// Initialize email service
+	appURL := os.Getenv("APP_URL")
+	if appURL == "" {
+		appURL = "http://localhost:3000" // Default to localhost if not set
+	}
+	emailService := services.NewEmailService(
+		"templates/email.html",
+		appURL,
+	)
+
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
 		AppName: "Novelized Landing Backend",
@@ -428,6 +467,16 @@ func main() {
 
 	// Add request logging middleware
 	app.Use(RequestLogger(logger))
+
+	// Serve static files using Fiber's static middleware
+	app.Static("/static", "./static", fiber.Static{
+		Compress:      true,
+		ByteRange:     true,
+		Browse:        false,
+		Index:         "",
+		CacheDuration: 24 * time.Hour,
+		MaxAge:        31536000, // 1 year
+	})
 
 	// Index route
 	app.Get("/", func(c *fiber.Ctx) error {
@@ -490,11 +539,11 @@ func main() {
 	// Email signup endpoint
 	app.Post("/signup", func(c *fiber.Ctx) error {
 		logger.Debug("Signup request received")
-		
+
 		// Log the raw request body for debugging
 		rawBody := string(c.Body())
 		logger.Debug("Raw request body: %s", rawBody)
-		
+
 		var signup EmailSignup
 		if err := c.BodyParser(&signup); err != nil {
 			logger.Error("Invalid request body: %v", err)
@@ -502,7 +551,7 @@ func main() {
 				"error": "Invalid request body",
 			})
 		}
-		
+
 		// Log the parsed data for debugging
 		logger.Debug("Parsed signup data: name=%s, email=%s", signup.Name, signup.Email)
 
@@ -525,12 +574,21 @@ func main() {
 				"error": "Both name and email are required",
 			})
 		}
-        
-		// Add email format validation
-		if !strings.Contains(signup.Email, "@") || !strings.Contains(signup.Email, ".") {
+
+		// Validate email format
+		if !strings.Contains(signup.Email, "@") {
+			logger.Error("Invalid email format: missing '@' symbol in %s", signup.Email)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid email format: missing '@' symbol",
+			})
+		}
+
+		// Validate email format using a simple regex
+		emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+		if !emailRegex.MatchString(signup.Email) {
 			logger.Error("Invalid email format: %s", signup.Email)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Invalid email format",
+				"error": "Invalid email format: please enter a valid email address",
 			})
 		}
 
@@ -596,7 +654,7 @@ func main() {
 
 		// Insert encrypted data into database
 		logger.Debug("Inserting signup data into database: name=%s, email=%s, token=%s", signup.Name, signup.Email, token)
-		
+
 		// Use direct SQL with parameters to ensure proper handling
 		_, err = tx.Exec(`
 			INSERT INTO email_signups (name, email, verification_token, verification_sent_at)
@@ -633,7 +691,7 @@ func main() {
 
 		// Send verification email
 		logger.Debug("Preparing to send verification email to %s", signup.Email)
-		err = sendVerificationEmail(signup.Email, signup.Name, token, logger)
+		err = sendVerificationEmail(signup.Email, signup.Name, token, logger, emailService)
 		if err != nil {
 			logger.Error("Failed to send verification email to %s: %v", signup.Email, err)
 			// Continue anyway, as the signup was successful
@@ -651,7 +709,7 @@ func main() {
 	app.Get("/verify", func(c *fiber.Ctx) error {
 		token := c.Query("token")
 		logger.Debug("Verification request received for token: %s", token)
-		
+
 		if token == "" {
 			logger.Error("Verification token is missing")
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -721,7 +779,7 @@ func main() {
 	if port == "" {
 		port = "3000"
 	}
-	
+
 	logger.Info("Server starting on port %s", port)
 	log.Fatal(app.Listen(":" + port))
-} 
+}
