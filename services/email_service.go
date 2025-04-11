@@ -17,7 +17,7 @@ func NewEmailService(templatePath, appURL string) *EmailService {
 	}
 }
 
-func (s *EmailService) GenerateVerificationEmail(name, verificationURL string) (string, error) {
+func (s *EmailService) GenerateVerificationEmail(name, email, verificationURL string) (string, error) {
 	// Read the template file
 	tmpl, err := template.ParseFiles(s.templatePath)
 	if err != nil {
@@ -27,10 +27,12 @@ func (s *EmailService) GenerateVerificationEmail(name, verificationURL string) (
 	// Prepare the template data
 	data := struct {
 		Name            string
+		Email           string
 		VerificationURL string
 		AppURL          string
 	}{
 		Name:            name,
+		Email:           email,
 		VerificationURL: verificationURL,
 		AppURL:          s.appURL,
 	}

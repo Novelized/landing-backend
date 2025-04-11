@@ -5,67 +5,170 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Novelized - Email Verification</title>
     <style>
+        /* Base styles */
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #333333;
             margin: 0;
             padding: 0;
+            background-color: #f5f5f5;
         }
+
+        /* Container */
         .container {
             max-width: 600px;
             margin: 0 auto;
             padding: 20px;
         }
-        .logo {
+
+        /* Header */
+        .header {
             text-align: center;
-            margin-bottom: 20px;
+            padding: 20px 0;
+            background-color: #ffffff;
+            border-radius: 8px 8px 0 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
+
+        .logo {
+            margin-bottom: 15px;
+        }
+
         .logo img {
-            max-width: 200px;
+            max-width: 180px;
             height: auto;
         }
-        .content {
-            background-color: #f9f9f9;
-            padding: 30px;
-            border-radius: 5px;
+
+        .slogan {
+            color: #666666;
+            font-style: italic;
+            font-size: 16px;
+            margin: 10px 0;
         }
+
+        /* Content */
+        .content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        h1 {
+            color: #2c3e50;
+            font-size: 24px;
+            margin: 0 0 20px 0;
+            font-weight: 600;
+        }
+
+        p {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #444444;
+        }
+
+        /* Button */
+        .button-container {
+            text-align: center;
+            margin: 25px 0;
+        }
+
         .button {
             display: inline-block;
-            padding: 12px 24px;
-            background-color: #007bff;
-            color: white;
+            padding: 14px 28px;
+            background-color: #3498db;
+            color: #ffffff;
             text-decoration: none;
             border-radius: 4px;
-            margin: 20px 0;
+            font-weight: 600;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
         }
+
+        .button:hover {
+            background-color: #2980b9;
+        }
+
+        /* Footer */
         .footer {
             text-align: center;
             margin-top: 30px;
+            padding: 20px;
+            color: #666666;
+            font-size: 14px;
+        }
+
+        .footer p {
+            margin: 5px 0;
+        }
+
+        .copyright {
             font-size: 12px;
-            color: #666;
+            color: #999999;
+        }
+
+        /* Responsive */
+        @media only screen and (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 20px;
+            }
+            
+            p {
+                font-size: 14px;
+            }
+            
+            .button {
+                padding: 12px 24px;
+                font-size: 14px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="logo">
-            <img src="{{.AppURL}}/static/email-assets/logo.png" alt="Novelized Logo">
+        <div class="header">
+            <div class="logo">
+                <img src="{{.AppURL}}/static/email-assets/logo.png" alt="Novelized Logo">
+            </div>
+            <div class="slogan">Transform your reading experience</div>
         </div>
+        
         <div class="content">
             <h1>Welcome to Novelized!</h1>
-            <p>Thank you for registering with Novelized. We're excited to have you on board!</p>
-            <p>To complete your registration, please click the button below to verify your email address:</p>
-            <p style="text-align: center;">
+            
+            <p>Dear {{.Name}},</p>
+            
+            <p>Thank you for joining Novelized! We're thrilled to have you as part of our community of passionate readers.</p>
+            
+            <p>To complete your registration and start receiving updates, please verify your email address by clicking the button below:</p>
+            
+            <div class="button-container">
                 <a href="{{.VerificationURL}}" class="button">Verify Email Address</a>
-            </p>
+            </div>
+            
+            <p>If the button above doesn't work, you can also copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #666666; font-size: 14px;">{{.VerificationURL}}</p>
+            
             <p>If you did not create an account with Novelized, please ignore this email.</p>
-            <p>Best regards,<br>The Novelized Team</p>
+            
+            <p>Best regards,<br>
+            <strong>The Novelized Team</strong></p>
         </div>
+        
         <div class="footer">
-            <p>© 2024 Novelized. All rights reserved.</p>
-            <p>Your slogan: "Transform your reading experience"</p>
+            <p>© 2025 Novelized. All rights reserved.</p>
+            <p>Founded in 2025</p>
+            <p class="copyright">This email was sent to {{.Email}}. If you have any questions, please contact us at support@novelized.online</p>
         </div>
     </div>
 </body>
-</html> 
+</html>

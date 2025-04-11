@@ -228,7 +228,7 @@ func RequestLogger(logger *Logger) fiber.Handler {
 }
 
 // sendVerificationEmail sends a verification email to the user
-func sendVerificationEmail(to, name, token string, logger *Logger, emailService *services.EmailService) error {
+func sendVerificationEmail(name, email, verificationURL string, logger *Logger, emailService *services.EmailService) error {
 	from := os.Getenv("SMTP_FROM")
 	smtpHost := os.Getenv("SMTP_HOST")
 	smtpPort := os.Getenv("SMTP_PORT")
@@ -251,10 +251,9 @@ func sendVerificationEmail(to, name, token string, logger *Logger, emailService 
 	if apiURL == "" {
 		apiURL = "http://localhost:3000" // Default to localhost if not set
 	}
-	verificationURL := fmt.Sprintf("%s/verify?token=%s", os.Getenv("APP_URL"), token)
 
 	// Generate HTML content using the email service
-	htmlBody, err := emailService.GenerateVerificationEmail(name, verificationURL)
+	htmlBody, err := emailService.GenerateVerificationEmail(name, email, verificationURL)
 	if err != nil {
 		logger.Error("Failed to generate email template: %v", err)
 		return fmt.Errorf("failed to generate email template: %w", err)
@@ -293,13 +292,13 @@ The Novelized Team
 		"\r\n"+
 		"%s\r\n"+
 		"\r\n"+
-		"--boundary123--\r\n", to, from, "Verify your Novelized signup", plainTextBody, htmlBody)
+		"--boundary123--\r\n", email, from, "Verify your Novelized signup", plainTextBody, htmlBody)
 
-	logger.Debug("Preparing to send verification email to %s from %s via %s:%s", to, from, smtpHost, smtpPort)
+	logger.Debug("Preparing to send verification email to %s from %s via %s:%s", email, from, smtpHost, smtpPort)
 
 	// Log email details (without sensitive information)
 	logger.Info("Sending verification email: to=%s, subject=%s, verification_url=%s",
-		to, "Verify your Novelized signup", verificationURL)
+		email, "Verify your Novelized signup", verificationURL)
 
 	// Set up TLS configuration
 	tlsConfig := &tls.Config{
@@ -349,7 +348,7 @@ The Novelized Team
 		}
 
 		// Add the recipient
-		if err := client.Rcpt(to); err != nil {
+		if err := client.Rcpt(email); err != nil {
 			logger.Error("Failed to add recipient: %v", err)
 			done <- fmt.Errorf("adding recipient failed: %w", err)
 			return
@@ -385,7 +384,7 @@ The Novelized Team
 	select {
 	case err := <-done:
 		if err != nil {
-			logger.Error("Failed to send verification email to %s: %v", to, err)
+			logger.Error("Failed to send verification email to %s: %v", email, err)
 			return err
 		}
 	case <-time.After(15 * time.Second):
@@ -393,7 +392,7 @@ The Novelized Team
 		return fmt.Errorf("SMTP operation timed out")
 	}
 
-	logger.Info("Verification email sent successfully to %s", to)
+	logger.Info("Verification email sent successfully to %s", email)
 	return nil
 }
 
@@ -691,7 +690,7 @@ func main() {
 
 		// Send verification email
 		logger.Debug("Preparing to send verification email to %s", signup.Email)
-		err = sendVerificationEmail(signup.Email, signup.Name, token, logger, emailService)
+		err = sendVerificationEmail(signup.Name, signup.Email, fmt.Sprintf("%s/verify?token=%s", appURL, token), logger, emailService)
 		if err != nil {
 			logger.Error("Failed to send verification email to %s: %v", signup.Email, err)
 			// Continue anyway, as the signup was successful
