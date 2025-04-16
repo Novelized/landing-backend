@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
@@ -19,6 +20,8 @@ import (
 	"novelized/landing/backend/services"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -160,7 +163,70 @@ func runMigrations(db *sql.DB, logger *Logger) error {
 type HealthResponse struct {
 	Status    string `json:"status"`
 	Database  string `json:"database"`
+	SMTP      string `json:"smtp"`
 	Timestamp string `json:"timestamp"`
+	Uptime    string `json:"uptime"`
+}
+
+var startTime = time.Now()
+
+// checkSMTPConnection tests the SMTP connection
+func checkSMTPConnection() error {
+	smtpHost := os.Getenv("SMTP_HOST")
+	smtpPort := os.Getenv("SMTP_PORT")
+	smtpUser := os.Getenv("SMTP_USER")
+	smtpPass := os.Getenv("SMTP_PASS")
+
+	if smtpHost == "" || smtpPort == "" || smtpUser == "" || smtpPass == "" {
+		return fmt.Errorf("SMTP configuration missing")
+	}
+
+	// Create a timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create a channel to handle the connection test
+	done := make(chan error, 1)
+
+	go func() {
+		// Set up TLS configuration
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: false,
+			ServerName:         smtpHost,
+		}
+
+		// Connect to the SMTP server with TLS
+		conn, err := tls.Dial("tcp", smtpHost+":"+smtpPort, tlsConfig)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close()
+
+		// Create a new SMTP client
+		client, err := smtp.NewClient(conn, smtpHost)
+		if err != nil {
+			done <- err
+			return
+		}
+		defer client.Close()
+
+		// Authenticate
+		auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+		if err := client.Auth(auth); err != nil {
+			done <- err
+			return
+		}
+
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("SMTP connection timeout")
+	}
 }
 
 type EmailSignup struct {
@@ -464,6 +530,62 @@ func main() {
 		AppName: "Novelized Landing Backend",
 	})
 
+	// Add rate limiting middleware
+	app.Use(limiter.New(limiter.Config{
+		Max:        100,             // Maximum number of requests
+		Expiration: 1 * time.Minute, // Time window
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP() // Rate limit by IP
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "Too many requests, please try again later",
+			})
+		},
+	}))
+
+	// Add CORS middleware
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     os.Getenv("ALLOWED_ORIGINS"), // Comma-separated list of allowed origins
+		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH",
+		AllowHeaders:     "Origin, Content-Type, Accept",
+		AllowCredentials: true,
+		MaxAge:           12 * 60 * 60, // 12 hours in seconds
+	}))
+
+	// Add structured logging middleware
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		// Log request details
+		logger.Info("Request started: %s %s from %s", c.Method(), c.Path(), c.IP())
+
+		// Validate request size
+		if len(c.Body()) > 1024*1024 { // 1MB limit
+			logger.Error("Request too large: %s %s from %s", c.Method(), c.Path(), c.IP())
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+				"error": "Request body too large",
+			})
+		}
+
+		// Process request
+		err := c.Next()
+
+		// Log response details
+		latency := time.Since(start)
+		status := c.Response().StatusCode()
+
+		if err != nil {
+			logger.Error("Request failed: %s %s - Status: %d - Latency: %v - Error: %v",
+				c.Method(), c.Path(), status, latency, err)
+		} else {
+			logger.Info("Request completed: %s %s - Status: %d - Latency: %v",
+				c.Method(), c.Path(), status, latency)
+		}
+
+		return err
+	})
+
 	// Add request logging middleware
 	app.Use(RequestLogger(logger))
 
@@ -520,6 +642,7 @@ func main() {
 		response := HealthResponse{
 			Status:    "ok",
 			Timestamp: time.Now().Format(time.RFC3339),
+			Uptime:    time.Since(startTime).String(),
 		}
 
 		// Check database connection
@@ -530,6 +653,16 @@ func main() {
 			response.Status = "degraded"
 		} else {
 			response.Database = "ok"
+		}
+
+		// Check SMTP connection
+		err = checkSMTPConnection()
+		if err != nil {
+			logger.Error("SMTP health check failed: %v", err)
+			response.SMTP = "error"
+			response.Status = "degraded"
+		} else {
+			response.SMTP = "ok"
 		}
 
 		return c.JSON(response)
